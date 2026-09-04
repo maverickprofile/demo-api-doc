@@ -1,41 +1,80 @@
 ---
 title: Pagination
-description: All list endpoints use cursor-based pagination.
+description: All list endpoints in the GoStudio API use cursor-based pagination. This page explains how to traverse pages, filter results, and sort responses.
 ---
 
 ## How it works
 
-GoStudio uses **opaque cursor tokens** to mark your position in a result set. Every list response includes a pagination block:
+GoStudio uses **opaque cursor tokens** to mark your position in a result set. Every list response includes a pagination object alongside the data array:
 
 ```json
 {
   "status": 200,
   "data": {
-    "data": [ { "id": 101 }, { "id": 100 } ],
+    "data": [
+      { "id": 101, "status": "completed" },
+      { "id": 100, "status": "completed" }
+    ],
     "pagination": {
       "next_cursor": "eyJpZCI6MTAwfQ==",
       "has_more": true
     }
   }
 }
-```n
-Pass the cursor to fetch the next page:
+```
 
-```bash
+Pass the 
+ext_cursor value as the cursor query parameter to fetch the next page:
+
+```
 GET /api/v2/me/generations?cursor=eyJpZCI6MTAwfQ==
-```n
-When has_more is alse or 
+```
+
+When has_more is alse, or 
 ext_cursor is 
 ull, you have reached the last page.
 
 ## Query parameters
 
-All list endpoints share these parameters:
+All list endpoints support these shared parameters:
 
 | Parameter | Type | Default | Max | Description |
 |-----------|------|---------|-----|-------------|
-| `limit` | integer | 20 | 100 | Results per page |
-| `cursor` | string | - | - | Cursor from a previous response |
-| `sort` | string | created_at.desc | - | `created_at.asc` or `created_at.desc` |
-| `since` | ISO datetime | - | - | Return records created at or after this timestamp |
-| `until` | ISO datetime | - | - | Return records created at or before this timestamp |
+| limit | integer | 20 | 100 | Number of results per page |
+| cursor | string | - | - | Opaque cursor from a previous response |
+| sort | string | created_at.desc | - | created_at.asc or created_at.desc |
+| since | ISO datetime | - | - | Return records created at or after this timestamp |
+| until | ISO datetime | - | - | Return records created at or before this timestamp |
+
+## Fetching all pages
+
+The pattern for iterating a full result set:
+
+```javascript
+async function fetchAll(token, path) {
+  const results = [];
+  let cursor = null;
+  do {
+    const url = new URL('https://www.gostudio.ai' + path);
+    url.searchParams.set('limit', '100');
+    if (cursor) url.searchParams.set('cursor', cursor);
+    const res = await fetch(url, {
+      headers: { Authorization: 'Bearer ' + token }
+    });
+    const body = await res.json();
+    results.push(...body.data.data);
+    cursor = body.data.pagination.next_cursor;
+  } while (cursor);
+  return results;
+}
+```
+
+## Filtering
+
+List endpoints support additional filters specific to their resource. For example, on /api/v2/me/generations:
+
+```
+GET /api/v2/me/generations?status=completed&media_type=image&limit=50
+```
+
+See each endpoint's reference page for its available filter parameters.
