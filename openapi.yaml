@@ -466,12 +466,17 @@ paths:
         writes a generation log, and deducts credits in one call.
 
 
-        **Two possible outcomes.** Fast models return `200` with `output_urls`
-        already populated. Slower models return `202` with `status: "processing"`
-        plus a `poll_url` — poll `GET /api/v2/apps/watermark-remover/{jobId}`
-        until `status` becomes `completed`, or supply a `webhook_url` and be
-        notified instead. Always branch on the HTTP status rather than assuming
-        the synchronous shape.
+        **This call blocks until the image is ready.** Fast models return almost
+        immediately. Slower models are polled server-side on your behalf, so the
+        response still arrives as a completed `200` — but it can take up to four
+        minutes, and the request is cut off at five. Set your client's HTTP
+        timeout accordingly; the default in most HTTP libraries is far too short.
+
+
+        You never need to poll this endpoint's result yourself. Supply a
+        `webhook_url` if you would rather not hold a connection open — note that
+        the webhook fires on success only, so a request that errors is reported
+        through the HTTP response alone.
 
 
         Allowed callers: `user`, `internal`.
@@ -502,17 +507,6 @@ paths:
                 properties:
                   status: { type: integer, example: 200 }
                   data: { $ref: "#/components/schemas/WatermarkSyncResult" }
-        "202":
-          description: >
-            Generation accepted and running asynchronously. Poll `poll_url` or
-            wait for your webhook.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status: { type: integer, example: 202 }
-                  data: { $ref: "#/components/schemas/WatermarkAsyncResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "402": { $ref: "#/components/responses/PaymentRequired" }
@@ -520,6 +514,7 @@ paths:
         "422": { $ref: "#/components/responses/UnprocessableContent" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/ServerError" }
+        "502": { $ref: "#/components/responses/BadGateway" }
         "504": { $ref: "#/components/responses/GatewayTimeout" }
 
   /api/v2/apps/watermark-remover/info:
@@ -554,11 +549,15 @@ paths:
       tags: [Watermark Remover]
       summary: Poll job status
       description: >
-        Returns the current status of a watermark removal job. `output_urls` and
+        Looks up a watermark removal job by its `job_id`. `output_urls` and
         `credits_deducted` appear once `status` is `completed`; `error` appears
-        when it is `failed`. Poll every 3 seconds and give up after 240 seconds —
-        the values `polling.interval_ms` and `polling.timeout_ms` from the info
-        endpoint are the authoritative source.
+        when it is `failed`.
+
+
+        You do not need this to complete a normal generation — `POST
+        /api/v2/apps/watermark-remover` already waits for the result. Use it to
+        re-fetch the outputs of an earlier job, or to check on one submitted by
+        a request whose connection dropped.
 
 
         Allowed callers: `user`, `internal`.
@@ -1224,6 +1223,17 @@ components:
           example:
             status: 500
             error: { type: system_error, code: internal_error, dev: 50000, message: "Something went wrong on our end." }
+    BadGateway:
+      description: >
+        The upstream model provider failed, or server-side polling gave up after
+        240 seconds without a result. The generation is marked failed and the
+        credits reserved for it are refunded.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 502
+            error: { type: provider_error, code: provider_bad_gateway, dev: 50200, message: "Generation is having trouble right now. Please try again." }
     GatewayTimeout:
       description: The upstream model provider took too long to respond.
       content:
@@ -1399,19 +1409,6 @@ components:
           type: number
           description: Remaining balance after this request.
           example: 41
-
-    WatermarkAsyncResult:
-      type: object
-      properties:
-        job_id: { type: integer, example: 12345 }
-        status: { type: string, enum: [processing] }
-        model_id: { type: string, example: replicate/pruna-image-edit }
-        provider_job_id: { type: string }
-        poll_url:
-          type: string
-          format: uri
-          description: Full URL to poll for this job's status.
-          example: https://www.gostudio.ai/api/v2/apps/watermark-remover/12345
 
     WatermarkPollResult:
       type: object
