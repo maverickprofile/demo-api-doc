@@ -3,22 +3,22 @@ title: Watermark Remover
 description: A complete walkthrough of the Watermark Remover API from model selection to error handling.
 ---
 
-The Watermark Remover API removes watermarks from images using AI. Send an image URL and receive a clean image in the same response. The API is synchronous for most models, so no polling loop is required.
+The Watermark Remover API removes watermarks from images using AI. Send an image URL and receive a clean image in the same response.
 
 ## Before you start
 
 - You need a valid **Bearer token**. See [Authentication](/docs/authentication).
 - You need sufficient **credits**. Check your balance at GET /api/v2/me/credit-balance.
-- Your image must be at a **publicly accessible HTTPS URL**. The API cannot fetch images behind authentication or firewalls.
+- Your image must be at a **publicly accessible HTTPS URL**.
 
 ## 1. Check available models
 
-Fetch the tool info endpoint to see which model tiers are available and their credit costs:
+Fetch the tool info endpoint to see model tiers and credit costs:
 
-`ash
+```bash
 curl https://www.gostudio.ai/api/v2/apps/watermark-remover/info \
   -H "Authorization: Bearer YOUR_TOKEN"
-`ash
+```
 
 ## 2. Choose a model tier
 
@@ -26,27 +26,42 @@ curl https://www.gostudio.ai/api/v2/apps/watermark-remover/info \
 |----------|---------|----------|
 | lite | Standard | Most watermarks, lowest credit cost |
 | pro | High quality | Complex or semi-transparent watermarks |
-| advance | Best quality | Difficult watermarks, maximum detail preservation |
+| advance | Best quality | Difficult watermarks, maximum detail |
 
-Start with lite. Only upgrade to pro or advance if the output quality is insufficient for your use case.
+Start with lite. Only upgrade if output quality is insufficient.
 
 ## 3. Submit the image
 
-Send a POST request with your image URL and chosen model:
-
-`ash
+```bash
 curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{
-    "image_url": "https://example.com/watermarked.jpg",
-    "model_id": "lite"
-  }'
-`ash
+  -d '{"image_url": "https://example.com/watermarked.jpg", "model_id": "lite"}'
+```
+
+```javascript
+const res = await fetch('https://www.gostudio.ai/api/v2/apps/watermark-remover', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN', 'Content-Type': 'application/json' },
+  body: JSON.stringify({ image_url: 'https://example.com/watermarked.jpg', model_id: 'lite' })
+});
+const { data } = await res.json();
+console.log(data.output_urls[0]);
+```
+
+```python
+import httpx
+r = httpx.post(
+    'https://www.gostudio.ai/api/v2/apps/watermark-remover',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'},
+    json={'image_url': 'https://example.com/watermarked.jpg', 'model_id': 'lite'}
+)
+print(r.json()['data']['output_urls'][0])
+```
 
 ## 4. Read the response
 
-`json
+```json
 {
   "status": 200,
   "data": {
@@ -57,11 +72,11 @@ curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
     "credit_balance": 41
   }
 }
-`json
+```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| job_id | integer | Unique ID for this generation. Use it to query status later. |
+| job_id | integer | Unique ID for this generation. |
 | status | string | completed for synchronous responses. |
 | output_urls | string[] | CDN URLs for the cleaned images, ready to use immediately. |
 | credits_deducted | number | Credits consumed by this request. |
@@ -69,26 +84,24 @@ curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
 
 ## 5. Optional - receive results via webhook
 
-For async integrations, pass a webhook_url in the request body. GoStudio will POST the result to your endpoint when processing completes. The payload uses the same shape as the synchronous response.
+Pass a webhook_url in the request body. GoStudio will POST the result to your endpoint on completion.
 
-`json
+```json
 {
   "image_url": "https://example.com/watermarked.jpg",
   "model_id": "lite",
   "webhook_url": "https://your-app.com/webhooks/gostudio"
 }
-`json
+```
 
 Your server must respond with HTTP 2xx within 10 seconds to acknowledge receipt.
 
-## 6. Polling job status
+## 6. Poll job status
 
-If you need to check the status of a previously submitted job:
-
-`ash
+```bash
 curl https://www.gostudio.ai/api/v2/apps/watermark-remover/12345 \
   -H "Authorization: Bearer YOUR_TOKEN"
-`ash
+```
 
 ## Common issues
 
