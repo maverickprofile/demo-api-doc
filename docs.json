@@ -1,13 +1,11 @@
 ﻿{
-  "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
   "name": "GoStudio API",
+  "theme": "mint",
   "colors": {
     "primary": "#7C3AED",
     "light": "#A78BFA",
     "dark": "#5B21B6"
   },
-  "favicon": "/favicon.png",
   "navigation": {
     "tabs": [
       {
