@@ -1,11 +1,16 @@
-﻿openapi: 3.0.3
+openapi: 3.0.3
 info:
   title: GoStudio API (v2)
   version: "2.0.0"
   description: >
-    GoStudio v2 REST API. This spec currently covers the **My Account** (`/me/*`)
-    endpoints. Every response uses a standard envelope: successes return
-    `{ status, data }`; errors return `{ status, error: { type, code, dev, message } }`.
+    GoStudio v2 REST API. Every response uses a standard envelope: successes
+    return `{ status, data }`; errors return
+    `{ status, error: { type, code, dev, message } }`.
+
+
+    Endpoints declare which **caller type** they accept. `user` is a Supabase
+    JWT, `internal` is a service secret, and `external` is a partner API key.
+    Sending a token whose caller type is not allowed returns `403 forbidden`.
 
 servers:
   - url: https://www.gostudio.ai
@@ -19,6 +24,18 @@ security:
 tags:
   - name: My Account
     description: Data for the authenticated user (requires a user token).
+  - name: Generations
+    description: Generation history for the authenticated user.
+  - name: Watermark Remover
+    description: AI watermark removal — orchestration, model metadata, and job polling.
+  - name: Media
+    description: Upload media by URL or as direct file uploads.
+  - name: Users (Admin)
+    description: >
+      Per-user data addressed by user ID. Contains PII, so these accept only
+      `internal` and `external` callers — never a user token.
+  - name: Webhooks
+    description: Endpoints called by external services, not by your application.
 
 paths:
   /api/v2/me/profile:
@@ -287,6 +304,812 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
         "500": { $ref: "#/components/responses/ServerError" }
 
+  /api/v2/me/upload:
+    post:
+      tags: [Media]
+      summary: Upload files directly
+      description: >
+        Uploads 1–50 files as `multipart/form-data` for the authenticated user.
+        Size limits per kind: images 40 MB, video 100 MB, audio 50 MB,
+        documents 40 MB. Files larger than 10 MB skip the inline NSFW check.
+
+
+        Allowed callers: `user` only.
+      operationId: uploadMyFiles
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  description: One to 50 files.
+                  items: { type: string, format: binary }
+              required: [files]
+      responses:
+        "200":
+          description: >
+            Upload processed. Inspect `summary.failed` — a 200 can still contain
+            per-file failures.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/FileUploadResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableContent" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/generations:
+    get:
+      tags: [Generations]
+      summary: List generations
+      description: >
+        Paginated generation history for the authenticated user, with richer
+        filtering than `/me/generations` — adds `model_key`, `search`, and
+        `is_liked`. Allowed callers: `user`, `internal`.
+      operationId: listGenerations
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: status
+          in: query
+          description: Comma-separated statuses.
+          schema:
+            type: string
+            example: completed,processing
+            enum: [pending, processing, completed, failed, abandoned]
+        - name: media_type
+          in: query
+          description: Comma-separated media types.
+          schema: { type: string, enum: [image, video, audio] }
+        - name: flow_type
+          in: query
+          description: Comma-separated flow types.
+          schema:
+            type: string
+            enum: [ai_editor, ai_canvas, ai_tools, image_generation, pack_generation, global]
+        - name: tool_name
+          in: query
+          description: Comma-separated tool names.
+          schema: { type: string, example: watermark_remover }
+        - name: profile_id
+          in: query
+          schema: { type: integer }
+        - name: model_key
+          in: query
+          description: Filter by the AI model used.
+          schema: { type: string, example: replicate/pruna-image-edit }
+        - name: search
+          in: query
+          description: Text search across prompts and tool names.
+          schema: { type: string, example: headshot }
+        - name: is_liked
+          in: query
+          description: Only generations that have at least one liked image.
+          schema: { type: boolean }
+        - name: include
+          in: query
+          description: Include related records. Comma-separated.
+          schema: { type: string, example: "images,samples" }
+      responses:
+        "200":
+          description: Generations returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AppGeneration" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/generations/{id}:
+    get:
+      tags: [Generations]
+      summary: Get a generation
+      description: >
+        Returns one generation with its images and samples always embedded.
+        Returns `404` if the generation does not exist **or** belongs to another
+        user — the response is intentionally identical in both cases so it cannot
+        be used to probe for existence. Allowed callers: `user`, `internal`.
+      operationId: getGeneration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Generation ID (positive integer).
+          schema: { type: integer, example: 12345 }
+      responses:
+        "200":
+          description: Generation returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/AppGeneration" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/apps/watermark-remover:
+    post:
+      tags: [Watermark Remover]
+      summary: Remove a watermark
+      description: >
+        Submits an image for watermark removal. This is the endpoint most
+        integrations should use — it validates the request, runs the generation,
+        writes a generation log, and deducts credits in one call.
+
+
+        **Two possible outcomes.** Fast models return `200` with `output_urls`
+        already populated. Slower models return `202` with `status: "processing"`
+        plus a `poll_url` — poll `GET /api/v2/apps/watermark-remover/{jobId}`
+        until `status` becomes `completed`, or supply a `webhook_url` and be
+        notified instead. Always branch on the HTTP status rather than assuming
+        the synchronous shape.
+
+
+        Allowed callers: `user`, `internal`.
+      operationId: removeWatermark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WatermarkRequest" }
+            examples:
+              lite:
+                summary: Default model
+                value:
+                  image_url: https://example.com/watermarked.jpg
+              tier:
+                summary: Named tier with webhook
+                value:
+                  image_url: https://example.com/watermarked.jpg
+                  model_id: pro
+                  webhook_url: https://your-app.com/webhooks/gostudio
+      responses:
+        "200":
+          description: Generation completed synchronously.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/WatermarkSyncResult" }
+        "202":
+          description: >
+            Generation accepted and running asynchronously. Poll `poll_url` or
+            wait for your webhook.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 202 }
+                  data: { $ref: "#/components/schemas/WatermarkAsyncResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/PaymentRequired" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableContent" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+        "504": { $ref: "#/components/responses/GatewayTimeout" }
+
+  /api/v2/apps/watermark-remover/info:
+    get:
+      tags: [Watermark Remover]
+      summary: Get tool metadata
+      description: >
+        Returns the available models, their credit cost and tier, the default
+        model, tier aliases, polling timings, and UI hints. Call this instead of
+        hard-coding model IDs — the model list changes over time.
+
+
+        Allowed callers: `user`, `internal`.
+      operationId: getWatermarkInfo
+      responses:
+        "200":
+          description: Tool metadata returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/WatermarkInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/apps/watermark-remover/{jobId}:
+    get:
+      tags: [Watermark Remover]
+      summary: Poll job status
+      description: >
+        Returns the current status of a watermark removal job. `output_urls` and
+        `credits_deducted` appear once `status` is `completed`; `error` appears
+        when it is `failed`. Poll every 3 seconds and give up after 240 seconds —
+        the values `polling.interval_ms` and `polling.timeout_ms` from the info
+        endpoint are the authoritative source.
+
+
+        Allowed callers: `user`, `internal`.
+      operationId: getWatermarkJob
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: The `job_id` returned when the generation was submitted.
+          schema: { type: integer, example: 12345 }
+      responses:
+        "200":
+          description: Job status returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/WatermarkPollResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Job not found, or not owned by the authenticated user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                status: 404
+                error: { type: not_found_error, code: job_not_found, dev: 40404, message: "Job not found." }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/apps/watermark-remover/generate:
+    post:
+      tags: [Watermark Remover]
+      summary: Generate only (no logging or billing)
+      description: >
+        Runs the model and returns the output without writing a generation log
+        or deducting credits. Pair it with `/record` when you need to control
+        those two steps yourself; most integrations should use
+        `POST /api/v2/apps/watermark-remover` instead.
+
+
+        Allowed callers: `user`, `internal`.
+      operationId: generateWatermarkRemoval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WatermarkRequest" }
+      responses:
+        "200":
+          description: Generation completed synchronously.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/WatermarkGenerateSyncResult" }
+        "202":
+          description: Generation accepted and running asynchronously.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 202 }
+                  data: { $ref: "#/components/schemas/WatermarkGenerateAsyncResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/apps/watermark-remover/record:
+    post:
+      tags: [Watermark Remover]
+      summary: Record a generation result
+      description: >
+        Finalizes an existing generation log — stores output URLs and deducts
+        credits on success, or marks the job failed. A job can only be finalized
+        once; a second call returns `400 invalid_job_status`. If the log carries
+        a `webhook_url` in its metadata, or you pass one here, the result is
+        delivered to it.
+
+
+        Allowed callers: `user`, `internal`.
+      operationId: recordWatermarkResult
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [generation_log_id, status]
+              properties:
+                generation_log_id:
+                  type: integer
+                  description: The log to finalize. Must belong to the caller.
+                  example: 12345
+                status:
+                  type: string
+                  enum: [completed, failed]
+                output_urls:
+                  type: array
+                  description: Required when `status` is `completed`; must be non-empty.
+                  items: { type: string, format: uri }
+                error:
+                  type: string
+                  description: Failure reason, used when `status` is `failed`.
+                webhook_url:
+                  type: string
+                  format: uri
+                  description: HTTPS URL to deliver the result to. Overrides the log's stored webhook.
+            examples:
+              completed:
+                summary: Mark completed
+                value:
+                  generation_log_id: 12345
+                  status: completed
+                  output_urls: ["https://r1.gostudio.ai/outputs/clean-image.jpg"]
+              failed:
+                summary: Mark failed
+                value:
+                  generation_log_id: 12345
+                  status: failed
+                  error: Provider returned no output.
+      responses:
+        "200":
+          description: Result recorded successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/WatermarkRecordResult" }
+        "400":
+          description: >
+            Invalid body, unknown status, missing `output_urls` for a completed
+            job, or the job was already finalized.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                status: 400
+                error: { type: validation_error, code: invalid_job_status, dev: 40037, message: "This job has already been finalized." }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Generation log not found, or not owned by the authenticated user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                status: 404
+                error: { type: not_found_error, code: generation_log_not_found, dev: 40405, message: "Generation log not found." }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/apps/watermark-remover/webhook:
+    post:
+      tags: [Webhooks]
+      summary: Provider callback (internal)
+      description: >
+        Receives async completion callbacks from the upstream model providers
+        (Replicate, Astria, Fal). **Not for your application to call** — configure
+        `webhook_url` on a generation request to receive results instead.
+
+
+        This endpoint is unauthenticated by design and always answers `200` with
+        `{ "received": true }`, even for unparseable or unmatched payloads, so a
+        provider never enters a retry storm. It does not use the standard
+        response envelope.
+      operationId: watermarkProviderWebhook
+      security: []
+      requestBody:
+        required: true
+        description: Provider-specific payload. The shape varies by provider.
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: Acknowledged. Always returned, regardless of outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean, example: true }
+
+  /api/v2/media/upload:
+    post:
+      tags: [Media]
+      summary: Upload media from URLs
+      description: >
+        Fetches up to 20 URLs and stores them on the GoStudio CDN. Partial
+        success is normal — a `200` means the batch was processed, not that every
+        item succeeded, so always read `summary.failed` and inspect each result.
+        If every successfully uploaded item is NSFW-flagged, the whole request
+        returns `422` instead.
+
+
+        `user` callers may only upload for themselves; the `user_id` in the body
+        is ignored and replaced with the authenticated user's ID. `internal` and
+        `external` callers may upload on behalf of any user.
+
+
+        Allowed callers: `user`, `internal`, `external`.
+      operationId: uploadMediaFromUrls
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [urls, user_id]
+              properties:
+                urls:
+                  type: array
+                  description: 1–20 URLs to fetch and store.
+                  minItems: 1
+                  maxItems: 20
+                  items: { type: string, format: uri }
+                user_id:
+                  type: string
+                  format: uuid
+                  description: >
+                    Owner of the uploads. Required by the schema, but ignored for
+                    `user` callers, who can only upload for themselves.
+                nsfw_check:
+                  type: boolean
+                  default: true
+                  description: Run the NSFW classifier on each item.
+                purpose:
+                  type: string
+                  nullable: true
+                  example: input
+                tool:
+                  type: string
+                  nullable: true
+                  example: watermark_remover
+            example:
+              urls: ["https://example.com/a.jpg", "https://example.com/b.png"]
+              user_id: 8f14e45f-ceea-467a-9f39-4c1b2a7d0e33
+              nsfw_check: true
+              purpose: input
+      responses:
+        "200":
+          description: >
+            Batch processed. May include per-item failures — check
+            `summary.failed`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/MediaUploadResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422":
+          description: Every successfully uploaded item was flagged as NSFW.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                status: 422
+                error: { type: validation_error, code: nsfw_content, dev: 42204, message: "All uploaded items were flagged as NSFW." }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/users/{userId}/summary:
+    get:
+      tags: [Users (Admin)]
+      summary: Get a user summary
+      description: >
+        Full profile, usage, transactions, derived segment, and an email token
+        for the given user. Contains PII.
+
+
+        Allowed callers: `internal`, `external` — a user token is rejected with
+        `403`.
+      operationId: getUserSummary
+      parameters:
+        - { $ref: "#/components/parameters/UserId" }
+        - name: x-generation-logs-limit
+          in: header
+          required: false
+          description: How many recent generation logs to include (default 50, max 500).
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        "200":
+          description: User summary returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/UserSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/users/{userId}/credit-balance:
+    get:
+      tags: [Users (Admin)]
+      summary: Get a user's credit balance
+      description: "Allowed callers: `internal`, `external`."
+      operationId: getUserCreditBalance
+      parameters:
+        - { $ref: "#/components/parameters/UserId" }
+      responses:
+        "200":
+          description: Credit balance returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/CreditBalance" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/users/{userId}/generations:
+    get:
+      tags: [Users (Admin)]
+      summary: List a user's generations
+      description: "Allowed callers: `internal`, `external`."
+      operationId: getUserGenerations
+      parameters:
+        - { $ref: "#/components/parameters/UserId" }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: status
+          in: query
+          description: Comma-separated statuses.
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed, abandoned]
+        - name: media_type
+          in: query
+          schema: { type: string, enum: [image, video, audio] }
+        - name: flow_type
+          in: query
+          schema:
+            type: string
+            enum: [ai_editor, ai_canvas, ai_tools, image_generation, pack_generation, global]
+        - name: tool_name
+          in: query
+          description: Comma-separated tool names.
+          schema: { type: string }
+        - name: profile_id
+          in: query
+          schema: { type: integer }
+        - name: include
+          in: query
+          description: Include related records. Comma-separated.
+          schema: { type: string, example: images }
+      responses:
+        "200":
+          description: Generations returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Generation" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/users/{userId}/images:
+    get:
+      tags: [Users (Admin)]
+      summary: List a user's images
+      description: "Allowed callers: `internal`, `external`."
+      operationId: getUserImages
+      parameters:
+        - { $ref: "#/components/parameters/UserId" }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: media_type
+          in: query
+          schema: { type: string, enum: [image, video, audio] }
+        - name: is_liked
+          in: query
+          schema: { type: boolean }
+        - name: is_deleted
+          in: query
+          schema: { type: boolean, default: false }
+        - name: tool_name
+          in: query
+          schema: { type: string }
+        - name: flow_type
+          in: query
+          schema:
+            type: string
+            enum: [ai_editor, ai_canvas, ai_tools, image_generation, pack_generation, global]
+      responses:
+        "200":
+          description: Images returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Image" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/users/{userId}/samples:
+    get:
+      tags: [Users (Admin)]
+      summary: List a user's samples
+      description: "Allowed callers: `internal`, `external`."
+      operationId: getUserSamples
+      parameters:
+        - { $ref: "#/components/parameters/UserId" }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: purpose
+          in: query
+          schema: { type: string, enum: [training, input] }
+        - name: profile_id
+          in: query
+          schema: { type: integer }
+        - name: upload_source
+          in: query
+          schema: { type: string, enum: [direct, qr_upload, url] }
+        - name: media_type
+          in: query
+          schema: { type: string, enum: [image, video, audio] }
+        - name: is_deleted
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Samples returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Sample" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/webhooks/revenuecat:
+    post:
+      tags: [Webhooks]
+      summary: RevenueCat purchase webhook (internal)
+      description: >
+        Receives subscription and purchase events from RevenueCat and grants
+        credits. **Not for your application to call.** Authorized with a shared
+        RevenueCat secret in the `Authorization` header, not a GoStudio bearer
+        token. Event handling is idempotent, so a replayed event does not grant
+        credits twice.
+      operationId: revenueCatWebhook
+      security: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: The shared secret configured in RevenueCat.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event:
+                  type: object
+                  additionalProperties: true
+                  description: >
+                    The RevenueCat event. A payload with no `event` is
+                    acknowledged with `200` and ignored.
+      responses:
+        "200":
+          description: Event processed or acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { type: object, nullable: true, additionalProperties: true }
+        "401":
+          description: Missing or invalid webhook authorization.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                status: 401
+                error: { type: authentication_error, code: webhook_invalid_signature, dev: 40102, message: "Webhook signature is invalid." }
+        "500": { $ref: "#/components/responses/ServerError" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -326,8 +1149,23 @@ components:
       in: query
       description: ISO timestamp upper bound (inclusive).
       schema: { type: string, format: date-time }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      description: The user's UUID.
+      schema: { type: string, format: uuid }
+      example: 8f14e45f-ceea-467a-9f39-4c1b2a7d0e33
 
   responses:
+    BadRequest:
+      description: The request was malformed or failed validation.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 400
+            error: { type: validation_error, code: invalid_input, dev: 40001, message: "Some information is invalid." }
     Unauthorized:
       description: Missing or invalid Authorization Bearer token.
       content:
@@ -336,6 +1174,14 @@ components:
           example:
             status: 401
             error: { type: authentication_error, code: unauthorized, dev: 40100, message: "Missing or invalid Authorization Bearer token." }
+    PaymentRequired:
+      description: The account does not have enough credits for this request.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 402
+            error: { type: billing_error, code: insufficient_credits, dev: 40200, message: "You don't have enough credits." }
     Forbidden:
       description: Caller type not allowed for this endpoint.
       content:
@@ -352,6 +1198,16 @@ components:
           example:
             status: 404
             error: { type: not_found_error, code: user_not_found, dev: 40400, message: "User not found." }
+    UnprocessableContent:
+      description: >
+        The request was well-formed but the content could not be processed —
+        for example the image was rejected by the model or flagged as NSFW.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 422
+            error: { type: provider_error, code: content_filtered, dev: 42205, message: "We couldn't generate this image. Please try a different prompt or image." }
     RateLimited:
       description: Too many requests.
       content:
@@ -368,6 +1224,14 @@ components:
           example:
             status: 500
             error: { type: system_error, code: internal_error, dev: 50000, message: "Something went wrong on our end." }
+    GatewayTimeout:
+      description: The upstream model provider took too long to respond.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 504
+            error: { type: provider_error, code: generation_timeout, dev: 50400, message: "The request took too long. Please try again." }
 
   schemas:
     ErrorResponse:
@@ -437,6 +1301,19 @@ components:
           description: Present only when include=samples.
           items: { $ref: "#/components/schemas/Sample" }
 
+    AppGeneration:
+      allOf:
+        - { $ref: "#/components/schemas/Generation" }
+        - type: object
+          properties:
+            user_prompt:
+              type: string
+              nullable: true
+              description: >
+                The prompt exactly as the user typed it, before any internal
+                rewriting. Compare with `prompt_used`, which is what was sent to
+                the model.
+
     Image:
       type: object
       properties:
@@ -472,6 +1349,272 @@ components:
         purpose: { type: string, enum: [training, input] }
         config: { type: object, additionalProperties: true, nullable: true }
         created_at: { type: string, format: date-time }
+
+    WatermarkRequest:
+      type: object
+      required: [image_url]
+      properties:
+        image_url:
+          type: string
+          format: uri
+          description: >
+            Publicly accessible `http`/`https` URL of the watermarked image. The
+            API fetches it server-side, so it must not sit behind authentication
+            or a firewall.
+          example: https://example.com/watermarked.jpg
+        model_id:
+          type: string
+          description: >
+            Model to run. Accepts either a full model ID or one of the friendly
+            tier aliases `lite`, `pro`, `advance`. Defaults to
+            `dewatermark/watermark-remover-pro` (the `lite` tier). Call
+            `/info` for the current list rather than hard-coding these.
+          default: dewatermark/watermark-remover-pro
+          example: pro
+        prompt:
+          type: string
+          description: >
+            Optional guidance. Ignored by models whose `requires_prompt` is
+            `false` in the info response.
+        webhook_url:
+          type: string
+          format: uri
+          description: >
+            HTTPS URL to receive the result when the generation finishes. Must be
+            HTTPS. Your server should answer `2xx` within 10 seconds.
+          example: https://your-app.com/webhooks/gostudio
+
+    WatermarkSyncResult:
+      type: object
+      properties:
+        job_id: { type: integer, example: 12345 }
+        status: { type: string, enum: [completed] }
+        model_id: { type: string, example: dewatermark/watermark-remover-pro }
+        output_urls:
+          type: array
+          description: CDN URLs for the cleaned images, usable immediately.
+          items: { type: string, format: uri }
+        credits_deducted: { type: number, example: 1 }
+        credit_balance:
+          type: number
+          description: Remaining balance after this request.
+          example: 41
+
+    WatermarkAsyncResult:
+      type: object
+      properties:
+        job_id: { type: integer, example: 12345 }
+        status: { type: string, enum: [processing] }
+        model_id: { type: string, example: replicate/pruna-image-edit }
+        provider_job_id: { type: string }
+        poll_url:
+          type: string
+          format: uri
+          description: Full URL to poll for this job's status.
+          example: https://www.gostudio.ai/api/v2/apps/watermark-remover/12345
+
+    WatermarkPollResult:
+      type: object
+      properties:
+        job_id: { type: integer }
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, abandoned]
+        model_id: { type: string }
+        output_urls:
+          type: array
+          description: Present once the job has completed.
+          items: { type: string, format: uri }
+        credits_deducted:
+          type: number
+          description: Present once the job has completed.
+        error:
+          type: string
+          description: Present only when the job failed.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WatermarkGenerateSyncResult:
+      type: object
+      properties:
+        kind: { type: string, enum: [sync] }
+        model_id: { type: string }
+        output_urls:
+          type: array
+          description: >
+            Provider URLs. Unlike the orchestrated endpoint, these are not stored
+            on the GoStudio CDN and may expire.
+          items: { type: string, format: uri }
+
+    WatermarkGenerateAsyncResult:
+      type: object
+      properties:
+        kind: { type: string, enum: [async] }
+        model_id: { type: string }
+        provider_job_id: { type: string }
+        status: { type: string, enum: [processing] }
+
+    WatermarkRecordResult:
+      type: object
+      properties:
+        generation_log_id: { type: integer }
+        status: { type: string, enum: [completed, failed] }
+        credits_deducted: { type: number }
+        credit_balance: { type: number }
+        output_urls:
+          type: array
+          description: Stored CDN URLs. Present on success.
+          items: { type: string, format: uri }
+
+    WatermarkInfo:
+      type: object
+      properties:
+        tool:
+          type: object
+          properties:
+            id: { type: string, example: watermark-remover }
+            name: { type: string }
+            flow_type: { type: string, example: ai_tools }
+            cta_label: { type: string }
+            result_label: { type: string }
+            input:
+              type: object
+              nullable: true
+              properties:
+                kind: { type: string }
+                accept: { type: string }
+                max_mb: { type: number }
+            output:
+              type: object
+              nullable: true
+              properties:
+                kind: { type: string }
+        default_model: { type: string, example: dewatermark/watermark-remover-pro }
+        tiers:
+          type: object
+          description: Friendly tier alias to model ID.
+          additionalProperties: { type: string }
+          example:
+            lite: dewatermark/watermark-remover-pro
+            pro: replicate/pruna-image-edit
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/WatermarkModelInfo" }
+        polling:
+          type: object
+          description: Recommended client polling behaviour for async jobs.
+          properties:
+            interval_ms: { type: integer, example: 3000 }
+            timeout_ms: { type: integer, example: 240000 }
+        prompt:
+          type: object
+          nullable: true
+          properties:
+            label: { type: string }
+            placeholder: { type: string }
+            optional: { type: boolean }
+            suggestions: { type: array, items: { type: string } }
+
+    WatermarkModelInfo:
+      type: object
+      properties:
+        id: { type: string }
+        display_name: { type: string }
+        description: { type: string, nullable: true }
+        tier: { type: string, nullable: true, example: lite }
+        provider: { type: string, example: dewatermark }
+        return_mode:
+          type: string
+          description: Whether this model returns synchronously or asynchronously.
+        requires_prompt: { type: boolean }
+        pricing:
+          type: object
+          properties:
+            type: { type: string, example: flat }
+            credits: { type: number, example: 1 }
+        aspect_ratios: { type: array, nullable: true, items: { type: string } }
+        resolutions: { type: array, nullable: true, items: { type: string } }
+        defaults: { type: object, additionalProperties: true, nullable: true }
+        async_timers:
+          type: object
+          nullable: true
+          description: UI hints for how long to wait before reassuring or offering cancel.
+          properties:
+            still_working_copy_at_ms: { type: integer }
+            cancel_retry_button_at_ms: { type: integer }
+
+    MediaUploadSummary:
+      type: object
+      properties:
+        total: { type: integer }
+        uploaded: { type: integer }
+        failed: { type: integer }
+        nsfw_flagged: { type: integer }
+
+    MediaUploadResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          description: One entry per input URL, successes and failures mixed.
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/MediaUploadResult"
+              - $ref: "#/components/schemas/MediaUploadError"
+        summary: { $ref: "#/components/schemas/MediaUploadSummary" }
+
+    MediaUploadResult:
+      type: object
+      description: A successfully uploaded item.
+      properties:
+        source_url: { type: string, format: uri }
+        cdn_url: { type: string, format: uri }
+        raw_url: { type: string, format: uri }
+        media_type: { type: string, enum: [image, video, audio, document] }
+        content_type: { type: string, example: image/jpeg }
+        nsfw_checked: { type: boolean }
+        nsfw_flagged: { type: boolean }
+
+    MediaUploadError:
+      type: object
+      description: An item that could not be uploaded.
+      properties:
+        source_url: { type: string, format: uri }
+        error: { type: string, example: invalid_url }
+        message: { type: string }
+
+    FileUploadResponse:
+      type: object
+      properties:
+        summary: { $ref: "#/components/schemas/MediaUploadSummary" }
+        results:
+          type: array
+          description: One entry per submitted file, successes and failures mixed.
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/FileUploadResult"
+              - $ref: "#/components/schemas/FileUploadError"
+
+    FileUploadResult:
+      type: object
+      description: A successfully uploaded file.
+      properties:
+        file_name: { type: string }
+        cdn_url: { type: string, format: uri }
+        raw_url: { type: string, format: uri }
+        media_type: { type: string }
+        content_type: { type: string }
+        size: { type: integer, description: Size in bytes. }
+        nsfw_checked: { type: boolean }
+        nsfw_flagged: { type: boolean }
+
+    FileUploadError:
+      type: object
+      description: A file that could not be uploaded.
+      properties:
+        file_name: { type: string }
+        error: { type: string, example: file_too_large }
+        message: { type: string }
 
     MeProfile:
       type: object
@@ -543,4 +1686,16 @@ components:
               status: { type: string }
               plan_type: { type: string, nullable: true }
               created_at: { type: string, format: date-time }
-        derived_segment: { type: string }
+        derived_segment:
+          type: string
+          enum: [model_training_user, paying_user, active_free_user, new_user]
+
+    UserSummary:
+      allOf:
+        - { $ref: "#/components/schemas/MeProfile" }
+        - type: object
+          properties:
+            email_token:
+              type: string
+              nullable: true
+              description: Signed token for unsubscribe and email-preference links.
