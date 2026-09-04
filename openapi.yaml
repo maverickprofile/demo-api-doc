@@ -1,0 +1,546 @@
+﻿openapi: 3.0.3
+info:
+  title: GoStudio API (v2)
+  version: "2.0.0"
+  description: >
+    GoStudio v2 REST API. This spec currently covers the **My Account** (`/me/*`)
+    endpoints. Every response uses a standard envelope: successes return
+    `{ status, data }`; errors return `{ status, error: { type, code, dev, message } }`.
+
+servers:
+  - url: https://www.gostudio.ai
+    description: Production
+  - url: http://localhost:3000
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: My Account
+    description: Data for the authenticated user (requires a user token).
+
+paths:
+  /api/v2/me/profile:
+    get:
+      tags: [My Account]
+      summary: Get my profile
+      description: >
+        Returns the authenticated user's profile, usage summary, transactions,
+        and a derived segment. Allowed callers: `user`, `internal`.
+      operationId: getMyProfile
+      parameters:
+        - name: x-generation-logs-limit
+          in: header
+          required: false
+          description: How many recent generation logs to include (default 50, max 500).
+          schema:
+            type: integer
+            default: 50
+            maximum: 500
+      responses:
+        "200":
+          description: Profile returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/MeProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/me/credit-balance:
+    get:
+      tags: [My Account]
+      summary: Get my credit balance
+      description: "Returns current credit balance and expiry. Allowed callers: `user`, `internal`."
+      operationId: getMyCreditBalance
+      responses:
+        "200":
+          description: Credit balance returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data: { $ref: "#/components/schemas/CreditBalance" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/me/credit-history:
+    get:
+      tags: [My Account]
+      summary: List my credit history
+      description: "Paginated ledger of credit transactions. Allowed callers: `user`, `internal`."
+      operationId: getMyCreditHistory
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: type
+          in: query
+          description: Comma-separated transaction types.
+          schema:
+            type: string
+            example: purchase,deduction
+            enum: [purchase, deduction, debit, refund]
+        - name: event
+          in: query
+          description: >
+            Comma-separated event types (e.g. user_signup, pack_purchase,
+            image_generation, credit_expiry, ai_tools ...).
+          schema:
+            type: string
+            example: pack_purchase,image_generation
+      responses:
+        "200":
+          description: Credit history returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/CreditHistoryRow" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/me/generations:
+    get:
+      tags: [My Account]
+      summary: List my generations
+      description: "Paginated generation logs. Allowed callers: `user`, `internal`."
+      operationId: getMyGenerations
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: status
+          in: query
+          description: Comma-separated statuses.
+          schema:
+            type: string
+            example: completed,processing
+            enum: [pending, processing, completed, failed, abandoned]
+        - name: media_type
+          in: query
+          schema:
+            type: string
+            example: image
+            enum: [image, video, audio]
+        - name: flow_type
+          in: query
+          schema:
+            type: string
+            enum: [ai_editor, ai_canvas, ai_tools, image_generation, pack_generation, global]
+        - name: tool_name
+          in: query
+          description: Comma-separated tool names.
+          schema: { type: string }
+        - name: profile_id
+          in: query
+          schema: { type: integer }
+        - name: include
+          in: query
+          description: Include related records. Comma-separated.
+          schema:
+            type: string
+            example: images
+            enum: [images, samples]
+      responses:
+        "200":
+          description: Generations returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Generation" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/me/images:
+    get:
+      tags: [My Account]
+      summary: List my images
+      description: "Paginated generated images. Allowed callers: `user`, `internal`."
+      operationId: getMyImages
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: media_type
+          in: query
+          schema: { type: string, enum: [image, video, audio] }
+        - name: is_liked
+          in: query
+          schema: { type: boolean }
+        - name: is_deleted
+          in: query
+          schema: { type: boolean, default: false }
+        - name: tool_name
+          in: query
+          schema: { type: string }
+        - name: flow_type
+          in: query
+          schema:
+            type: string
+            enum: [ai_editor, ai_canvas, ai_tools, image_generation, pack_generation, global]
+      responses:
+        "200":
+          description: Images returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Image" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+  /api/v2/me/samples:
+    get:
+      tags: [My Account]
+      summary: List my samples
+      description: "Paginated uploaded samples. Allowed callers: `user`, `internal`."
+      operationId: getMySamples
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Cursor" }
+        - { $ref: "#/components/parameters/Sort" }
+        - { $ref: "#/components/parameters/Since" }
+        - { $ref: "#/components/parameters/Until" }
+        - name: purpose
+          in: query
+          schema: { type: string, enum: [training, input] }
+        - name: profile_id
+          in: query
+          schema: { type: integer }
+        - name: upload_source
+          in: query
+          schema: { type: string, enum: [direct, qr_upload, url] }
+        - name: media_type
+          in: query
+          schema: { type: string, enum: [image, video, audio] }
+        - name: is_deleted
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Samples returned successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Sample" }
+                      pagination: { $ref: "#/components/schemas/Pagination" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/ServerError" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Supabase user JWT (or an internal service token). Send as
+        `Authorization: Bearer <token>`.
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Page size (default 20, max 100).
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque pagination cursor from a previous response's next_cursor.
+      schema: { type: string }
+    Sort:
+      name: sort
+      in: query
+      description: Sort order by created_at.
+      schema:
+        type: string
+        enum: [created_at.asc, created_at.desc]
+        default: created_at.desc
+    Since:
+      name: since
+      in: query
+      description: ISO timestamp lower bound (inclusive).
+      schema: { type: string, format: date-time }
+    Until:
+      name: until
+      in: query
+      description: ISO timestamp upper bound (inclusive).
+      schema: { type: string, format: date-time }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Authorization Bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 401
+            error: { type: authentication_error, code: unauthorized, dev: 40100, message: "Missing or invalid Authorization Bearer token." }
+    Forbidden:
+      description: Caller type not allowed for this endpoint.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 403
+            error: { type: permission_error, code: forbidden, dev: 40300, message: "You don't have permission for this action." }
+    NotFound:
+      description: Requested record not found.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 404
+            error: { type: not_found_error, code: user_not_found, dev: 40400, message: "User not found." }
+    RateLimited:
+      description: Too many requests.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 429
+            error: { type: rate_limit_error, code: rate_limited, dev: 42900, message: "You're doing that too often. Please wait a moment." }
+    ServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            status: 500
+            error: { type: system_error, code: internal_error, dev: 50000, message: "Something went wrong on our end." }
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        status: { type: integer, example: 400 }
+        error:
+          type: object
+          properties:
+            type: { type: string, example: validation_error }
+            code: { type: string, example: invalid_input }
+            dev: { type: integer, example: 40001 }
+            message: { type: string, example: "Some information is invalid." }
+
+    Pagination:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page, or null if no more results.
+        has_more: { type: boolean }
+
+    CreditBalance:
+      type: object
+      properties:
+        user_id: { type: string, format: uuid }
+        credits: { type: number, example: 42 }
+        expires_at: { type: string, format: date-time, nullable: true }
+
+    CreditHistoryRow:
+      type: object
+      properties:
+        id: { type: integer }
+        transaction_type: { type: string, enum: [purchase, deduction, debit, refund] }
+        event_type: { type: string, example: image_generation }
+        amount: { type: number }
+        balance_after: { type: number }
+        reference_id: { type: string, nullable: true }
+        reference_type: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    Generation:
+      type: object
+      properties:
+        id: { type: integer }
+        media_type: { type: string }
+        flow_type: { type: string }
+        tool_name: { type: string, nullable: true }
+        status: { type: string, enum: [pending, processing, completed, failed, abandoned] }
+        profile_ids: { type: array, items: { type: integer }, nullable: true }
+        model_key: { type: string, nullable: true }
+        provider: { type: string, nullable: true }
+        resolution: { type: string, nullable: true }
+        output_format: { type: string, nullable: true }
+        prompt_used: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        images:
+          type: array
+          description: Present only when include=images.
+          items: { $ref: "#/components/schemas/Image" }
+        samples:
+          type: array
+          description: Present only when include=samples.
+          items: { $ref: "#/components/schemas/Sample" }
+
+    Image:
+      type: object
+      properties:
+        id: { type: integer }
+        uri: { type: string }
+        media_type: { type: string }
+        mime_type: { type: string }
+        is_liked: { type: boolean }
+        is_disliked: { type: boolean }
+        is_edited: { type: boolean }
+        is_custom: { type: boolean }
+        bonus_images: { type: object, additionalProperties: true, nullable: true }
+        config: { type: object, additionalProperties: true, nullable: true }
+        metadata: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+        generation:
+          type: object
+          nullable: true
+          properties:
+            tool_name: { type: string, nullable: true }
+            flow_type: { type: string }
+            media_type: { type: string }
+
+    Sample:
+      type: object
+      properties:
+        id: { type: integer }
+        uri: { type: string }
+        media_type: { type: string }
+        mime_type: { type: string }
+        profile_id: { type: integer, nullable: true }
+        upload_source: { type: string, enum: [direct, qr_upload, url] }
+        purpose: { type: string, enum: [training, input] }
+        config: { type: object, additionalProperties: true, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    MeProfile:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            user_id: { type: string, format: uuid }
+            email: { type: string, nullable: true }
+            first_name: { type: string, nullable: true }
+            phone: { type: string, nullable: true }
+            country: { type: string, nullable: true }
+            timezone: { type: string, nullable: true }
+            email_unsubscribed: { type: boolean }
+            created_at: { type: string, format: date-time }
+        is_paid_user: { type: boolean }
+        usage:
+          type: object
+          properties:
+            trained_models_count: { type: integer }
+            ai_tool_runs_count: { type: integer }
+            images_generated_count: { type: integer }
+            tools_used:
+              type: array
+              items:
+                type: object
+                properties:
+                  tool: { type: string }
+                  count: { type: integer }
+            generation_types:
+              type: array
+              items:
+                type: object
+                properties:
+                  type: { type: string }
+                  count: { type: integer }
+            by_flow_type:
+              type: array
+              items:
+                type: object
+                properties:
+                  flow_type: { type: string }
+                  count: { type: integer }
+            by_tool:
+              type: array
+              items:
+                type: object
+                properties:
+                  tool_name: { type: string }
+                  count: { type: integer }
+            last_used_at: { type: string, format: date-time, nullable: true }
+            last_generation_at: { type: string, format: date-time, nullable: true }
+            recent_generations:
+              type: array
+              items:
+                type: object
+                properties:
+                  tool_name: { type: string, nullable: true }
+                  prompt: { type: string }
+                  created_at: { type: string, format: date-time }
+        transactions:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              product: { type: string, nullable: true }
+              currency: { type: string }
+              status: { type: string }
+              plan_type: { type: string, nullable: true }
+              created_at: { type: string, format: date-time }
+        derived_segment: { type: string }

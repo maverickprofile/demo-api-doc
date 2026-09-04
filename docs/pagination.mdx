@@ -1,0 +1,40 @@
+﻿---
+title: "Pagination"
+description: "List endpoints use cursor-based pagination."
+---
+
+## How it works
+
+All list endpoints return a `pagination` object alongside the `data` array:
+
+```json
+{
+  "status": 200,
+  "data": {
+    "data": [ ... ],
+    "pagination": {
+      "next_cursor": "eyJpZCI6MTIzfQ==",
+      "has_more": true
+    }
+  }
+}
+```
+
+Pass `next_cursor` as the `cursor` query param to get the next page:
+
+```
+GET /api/v2/me/generations?cursor=eyJpZCI6MTIzfQ==
+```
+
+When `has_more` is `false`, you have reached the last page.
+When `next_cursor` is `null`, there are no more results.
+
+## Parameters
+
+| Param | Default | Max | Description |
+|-------|---------|-----|-------------|
+| `limit` | 20 | 100 | Number of results per page |
+| `cursor` | — | — | Opaque cursor from previous response |
+| `sort` | `created_at.desc` | — | `created_at.asc` or `created_at.desc` |
+| `since` | — | — | ISO timestamp lower bound |
+| `until` | — | — | ISO timestamp upper bound |

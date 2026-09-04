@@ -1,0 +1,77 @@
+﻿---
+title: "Watermark Remover Guide"
+description: "End-to-end walkthrough: submit an image, get the clean result."
+---
+
+## Overview
+
+The Watermark Remover is synchronous — you POST an image URL and get the
+cleaned output URLs back in the same response. No polling required.
+
+## Step 1 — Check available models
+
+```bash
+curl https://www.gostudio.ai/api/v2/apps/watermark-remover/info \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+This returns the available model tiers and their credit costs.
+
+## Step 2 — Submit the image
+
+```bash
+curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image_url": "https://example.com/watermarked.jpg",
+    "model_id": "lite"
+  }'
+```
+
+### Model tiers
+
+| `model_id` | Quality | Credits |
+|-----------|---------|---------|
+| `lite` | Standard removal | Lowest cost |
+| `pro` | Higher quality | Medium cost |
+| `advance` | Best quality | Highest cost |
+
+## Step 3 — Read the result
+
+```json
+{
+  "status": 200,
+  "data": {
+    "job_id": 12345,
+    "status": "completed",
+    "output_urls": ["https://r1.gostudio.ai/...clean-image.jpg"],
+    "credits_deducted": 1,
+    "credit_balance": 41
+  }
+}
+```
+
+The `output_urls` array contains the cleaned image(s) ready to use.
+
+## Optional: receive results via webhook
+
+Pass a `webhook_url` in the request body and GoStudio will POST the result
+to your endpoint when processing completes.
+
+```json
+{
+  "image_url": "https://example.com/watermarked.jpg",
+  "model_id": "lite",
+  "webhook_url": "https://your-app.com/webhook"
+}
+```
+
+## Poll job status manually
+
+If you need to check the status of a job:
+
+```bash
+curl https://www.gostudio.ai/api/v2/apps/watermark-remover/12345 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```

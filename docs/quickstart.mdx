@@ -1,0 +1,58 @@
+﻿---
+title: "Quickstart"
+description: "Make your first API call in under 2 minutes."
+---
+
+## Step 1 — Get your token
+
+Log into your GoStudio account. Open browser DevTools → Application →
+Local Storage → find the key `sb-<project>-auth-token` → copy the `access_token` value.
+
+This is your **Bearer token** for every request.
+
+## Step 2 — Check your credit balance
+
+```bash
+curl https://www.gostudio.ai/api/v2/me/credit-balance \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Response**
+```json
+{
+  "status": 200,
+  "data": {
+    "user_id": "049cae5c-...",
+    "credits": 42,
+    "expires_at": "2026-01-31T00:00:00+00:00"
+  }
+}
+```
+
+## Step 3 — Remove a watermark
+
+```bash
+curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image_url": "https://example.com/image-with-watermark.jpg",
+    "model_id": "lite"
+  }'
+```
+
+**Response**
+```json
+{
+  "status": 200,
+  "data": {
+    "job_id": 12345,
+    "status": "completed",
+    "output_urls": ["https://r1.gostudio.ai/..."],
+    "credits_deducted": 1,
+    "credit_balance": 41
+  }
+}
+```
+
+That is the complete flow. No setup, no API keys — just your Bearer token.

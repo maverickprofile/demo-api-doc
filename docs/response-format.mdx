@@ -1,0 +1,50 @@
+﻿---
+title: "Response Format"
+description: "Every response uses a consistent envelope."
+---
+
+## Success envelope
+
+```json
+{
+  "status": 200,
+  "data": { ... }
+}
+```
+
+The `status` field mirrors the HTTP status code.
+The `data` field contains the actual payload.
+
+## Error envelope
+
+```json
+{
+  "status": 400,
+  "error": {
+    "type": "validation_error",
+    "code": "invalid_input",
+    "dev": 40001,
+    "message": "Some information is invalid."
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `type` | Category of error (see Errors page) |
+| `code` | Machine-readable error code |
+| `dev` | 5-digit internal developer code |
+| `message` | Human-readable description |
+
+## Error types
+
+| Type | Meaning |
+|------|---------|
+| `authentication_error` | Bad or missing token |
+| `permission_error` | Token valid but not allowed |
+| `validation_error` | Bad request input |
+| `billing_error` | Credit or payment issue |
+| `rate_limit_error` | Too many requests |
+| `not_found_error` | Resource does not exist |
+| `provider_error` | AI provider issue |
+| `system_error` | Server-side error |

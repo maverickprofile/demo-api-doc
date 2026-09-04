@@ -1,0 +1,49 @@
+﻿---
+title: "Introduction"
+description: "GoStudio v2 REST API — remove watermarks and manage your account programmatically."
+---
+
+## What is the GoStudio API?
+
+The GoStudio API lets you integrate AI-powered image processing into your app.
+This documentation covers the **v2 API**, scoped to the Watermark Remover tool
+and account management endpoints.
+
+## Base URL
+
+```
+https://www.gostudio.ai
+```
+
+All endpoints are prefixed with `/api/v2/`.
+
+## What you can do
+
+- **Remove watermarks** from images using the `/apps/watermark-remover` endpoints
+- **Manage your account** — credit balance, generation history, uploaded images
+- **Receive webhook events** from RevenueCat for billing
+
+## Response format
+
+Every response uses a standard envelope:
+
+**Success**
+```json
+{
+  "status": 200,
+  "data": { ... }
+}
+```
+
+**Error**
+```json
+{
+  "status": 401,
+  "error": {
+    "type": "authentication_error",
+    "code": "unauthorized",
+    "dev": 40100,
+    "message": "Missing or invalid Authorization Bearer token."
+  }
+}
+```
