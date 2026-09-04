@@ -1,42 +1,56 @@
-﻿---
+---
 title: "Authentication"
-description: "How to authenticate with the GoStudio API."
+description: "Every request to the GoStudio API must include a Bearer token. This page explains the three caller types and how to obtain each."
 ---
 
-## Bearer token
+## How it works
 
-Every request must include an `Authorization` header:
+The GoStudio API uses **HTTP Bearer authentication**. Include your token in the `Authorization` header on every request:
 
 ```
-Authorization: Bearer <token>
+Authorization: Bearer <your-token>
 ```
+
+There is no separate API key system. The token you send determines who you are and what you are allowed to access.
 
 ## Caller types
 
-The API has three caller types. Each endpoint declares which callers it accepts.
+Every endpoint in this API declares which **caller type** it accepts. Sending a token that belongs to a disallowed caller type returns `403 forbidden`.
 
-| Caller | Token | Access |
-|--------|-------|--------|
-| `user` | Supabase JWT (your login token) | Own data only |
-| `internal` | Internal service token | Full access |
-| `external` | Partner API key (e.g. n8n) | Partner-scoped access |
+| Caller | Token source | Typical use | Access level |
+|--------|-------------|-------------|--------------|
+| `user` | Supabase JWT from browser login | App users, developers testing | Own data only — cannot read other users |
+| `internal` | `INTERNAL_SERVICE_TOKEN` env var | Backend services, automation | Full access to all users |
+| `external` | `EXTERNAL_API_KEY_N8N` env var | Partner integrations (n8n etc.) | Partner-scoped read access |
 
-Most developers use the **`user`** caller type.
+<Note>
+  As a developer building on the API, you will use the **`user`** caller type unless you are building a server-side integration with explicit internal access.
+</Note>
 
 ## Getting a user token
 
-1. Log into [gostudio.ai](https://www.gostudio.ai)
-2. Open DevTools (F12) → **Application** → **Local Storage**
-3. Find the key `sb-<project-ref>-auth-token`
-4. Copy the `access_token` value (starts with `eyJ...`)
+User tokens are Supabase JWTs issued when a user logs into GoStudio.
 
-<Warning>
-User tokens expire after ~1 hour. If you get a `401`, grab a fresh token the same way.
-</Warning>
+### From the browser (for testing)
 
-## Error responses
+1. Log in at [gostudio.ai](https://www.gostudio.ai).
+2. Open DevTools (**F12**) → **Application** tab → **Local Storage**.
+3. Click `https://www.gostudio.ai` in the left pane.
+4. Find the key `sb-<project-ref>-auth-token`.
+5. The value is JSON — copy the `access_token` string (starts with `eyJ...`).
 
-If your token is missing or invalid, the API returns:
+### From your application
+
+If you are building a web or mobile app, use the [Supabase Auth client](https://supabase.com/docs/reference/javascript/auth-getsession) to obtain the session token:
+
+```javascript
+const { data: { session } } = await supabase.auth.getSession();
+const token = session.access_token;
+```
+
+## Token expiry
+
+User tokens expire after approximately **1 hour**. When a token expires, the API returns:
 
 ```json
 {
@@ -49,3 +63,22 @@ If your token is missing or invalid, the API returns:
   }
 }
 ```
+
+<Warning>
+  Always handle `401` responses in your integration. Refresh the token using your auth client and retry the request.
+</Warning>
+
+## Endpoint access matrix
+
+| Endpoint group | `user` | `internal` | `external` |
+|---------------|--------|-----------|-----------|
+| `GET /me/*` | ✅ | ✅ | ❌ |
+| `POST /me/upload` | ✅ | ✅ | ❌ |
+| `GET /users/{userId}/*` | ❌ | ✅ | ✅ |
+| `GET /generations` | ✅ | ✅ | ❌ |
+| `GET /generations/{id}` | ✅ | ✅ | ❌ |
+| `POST /apps/watermark-remover` | ✅ | ✅ | ❌ |
+| `GET /apps/watermark-remover/info` | ✅ | ✅ | ❌ |
+| `GET /apps/watermark-remover/{jobId}` | ✅ | ✅ | ❌ |
+| `POST /media/upload` | ❌ | ✅ | ✅ |
+| `POST /webhooks/revenuecat` | ❌ | ❌ | ❌ (shared secret) |

@@ -1,40 +1,41 @@
-﻿---
-title: "Pagination"
-description: "List endpoints use cursor-based pagination."
+---
+title: Pagination
+description: All list endpoints use cursor-based pagination.
 ---
 
 ## How it works
 
-All list endpoints return a `pagination` object alongside the `data` array:
+GoStudio uses **opaque cursor tokens** to mark your position in a result set. Every list response includes a pagination block:
 
 ```json
 {
   "status": 200,
   "data": {
-    "data": [ ... ],
+    "data": [ { "id": 101 }, { "id": 100 } ],
     "pagination": {
-      "next_cursor": "eyJpZCI6MTIzfQ==",
+      "next_cursor": "eyJpZCI6MTAwfQ==",
       "has_more": true
     }
   }
 }
-```
+```n
+Pass the cursor to fetch the next page:
 
-Pass `next_cursor` as the `cursor` query param to get the next page:
+```bash
+GET /api/v2/me/generations?cursor=eyJpZCI6MTAwfQ==
+```n
+When has_more is alse or 
+ext_cursor is 
+ull, you have reached the last page.
 
-```
-GET /api/v2/me/generations?cursor=eyJpZCI6MTIzfQ==
-```
+## Query parameters
 
-When `has_more` is `false`, you have reached the last page.
-When `next_cursor` is `null`, there are no more results.
+All list endpoints share these parameters:
 
-## Parameters
-
-| Param | Default | Max | Description |
-|-------|---------|-----|-------------|
-| `limit` | 20 | 100 | Number of results per page |
-| `cursor` | — | — | Opaque cursor from previous response |
-| `sort` | `created_at.desc` | — | `created_at.asc` or `created_at.desc` |
-| `since` | — | — | ISO timestamp lower bound |
-| `until` | — | — | ISO timestamp upper bound |
+| Parameter | Type | Default | Max | Description |
+|-----------|------|---------|-----|-------------|
+| `limit` | integer | 20 | 100 | Results per page |
+| `cursor` | string | - | - | Cursor from a previous response |
+| `sort` | string | created_at.desc | - | `created_at.asc` or `created_at.desc` |
+| `since` | ISO datetime | - | - | Return records created at or after this timestamp |
+| `until` | ISO datetime | - | - | Return records created at or before this timestamp |

@@ -1,37 +1,73 @@
-﻿---
+---
 title: "Quickstart"
-description: "Make your first API call in under 2 minutes."
+description: "Make your first authenticated API call in under 2 minutes."
 ---
 
-## Step 1 — Get your token
+This guide walks you from zero to a working watermark removal request. You need a GoStudio account and nothing else — no SDK installation, no API keys to generate.
 
-Log into your GoStudio account. Open browser DevTools → Application →
-Local Storage → find the key `sb-<project>-auth-token` → copy the `access_token` value.
+## Step 1 — Get your Bearer token
 
-This is your **Bearer token** for every request.
+The GoStudio API authenticates via a **Supabase JWT** issued when you log in.
 
-## Step 2 — Check your credit balance
+1. Open [gostudio.ai](https://www.gostudio.ai) and log in to your account.
+2. Press **F12** to open DevTools → go to the **Application** tab.
+3. Expand **Local Storage** → click `https://www.gostudio.ai`.
+4. Find the key named `sb-<project-ref>-auth-token`.
+5. The value is a JSON object — copy the string inside `"access_token"`. It starts with `eyJ...`.
 
-```bash
+<Warning>
+  Tokens expire after approximately 1 hour. If you receive a `401 unauthorized` response, repeat this step to get a fresh token.
+</Warning>
+
+## Step 2 — Verify your credentials
+
+Before running any generation, confirm your token works and check your credit balance:
+
+<CodeGroup>
+```bash curl
 curl https://www.gostudio.ai/api/v2/me/credit-balance \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-**Response**
+```javascript Node.js
+const res = await fetch("https://www.gostudio.ai/api/v2/me/credit-balance", {
+  headers: { Authorization: "Bearer YOUR_TOKEN" }
+});
+const data = await res.json();
+console.log(data);
+```
+
+```python Python
+import httpx
+r = httpx.get(
+    "https://www.gostudio.ai/api/v2/me/credit-balance",
+    headers={"Authorization": "Bearer YOUR_TOKEN"}
+)
+print(r.json())
+```
+</CodeGroup>
+
+**Expected response**
 ```json
 {
   "status": 200,
   "data": {
-    "user_id": "049cae5c-...",
+    "user_id": "049cae5c-e6ef-48ae-b8d8-69d9b44923e3",
     "credits": 42,
     "expires_at": "2026-01-31T00:00:00+00:00"
   }
 }
 ```
 
+If you see `"credits": 0`, you will need to purchase credits before generating.
+If you see a `401`, your token is invalid or expired — repeat Step 1.
+
 ## Step 3 — Remove a watermark
 
-```bash
+Send a `POST` to `/api/v2/apps/watermark-remover` with an image URL and a model tier:
+
+<CodeGroup>
+```bash curl
 curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
@@ -41,18 +77,59 @@ curl -X POST https://www.gostudio.ai/api/v2/apps/watermark-remover \
   }'
 ```
 
-**Response**
+```javascript Node.js
+const res = await fetch("https://www.gostudio.ai/api/v2/apps/watermark-remover", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer YOUR_TOKEN",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    image_url: "https://example.com/image-with-watermark.jpg",
+    model_id: "lite"
+  })
+});
+const data = await res.json();
+console.log(data.data.output_urls);
+```
+
+```python Python
+import httpx
+r = httpx.post(
+    "https://www.gostudio.ai/api/v2/apps/watermark-remover",
+    headers={"Authorization": "Bearer YOUR_TOKEN"},
+    json={
+        "image_url": "https://example.com/image-with-watermark.jpg",
+        "model_id": "lite"
+    }
+)
+print(r.json()["data"]["output_urls"])
+```
+</CodeGroup>
+
+**Expected response**
 ```json
 {
   "status": 200,
   "data": {
     "job_id": 12345,
     "status": "completed",
-    "output_urls": ["https://r1.gostudio.ai/..."],
+    "output_urls": ["https://r1.gostudio.ai/outputs/clean-image.jpg"],
     "credits_deducted": 1,
     "credit_balance": 41
   }
 }
 ```
 
-That is the complete flow. No setup, no API keys — just your Bearer token.
+The `output_urls` array contains the processed image(s), hosted on the GoStudio CDN and ready to use immediately.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/docs/authentication">
+    Learn about caller types and token expiry.
+  </Card>
+  <Card title="Watermark Remover Guide" icon="wand-magic-sparkles" href="/docs/guides/watermark-remover">
+    Webhooks, model tiers, error handling, and more.
+  </Card>
+</CardGroup>

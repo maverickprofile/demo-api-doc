@@ -1,50 +1,96 @@
-﻿---
+---
 title: "Response Format"
-description: "Every response uses a consistent envelope."
+description: "All GoStudio API responses use a consistent JSON envelope regardless of success or failure."
 ---
 
-## Success envelope
+## The envelope
+
+Every response body — success or error — wraps its payload in a top-level envelope. The `status` field always mirrors the HTTP status code.
+
+### Success
 
 ```json
 {
   "status": 200,
-  "data": { ... }
-}
-```
-
-The `status` field mirrors the HTTP status code.
-The `data` field contains the actual payload.
-
-## Error envelope
-
-```json
-{
-  "status": 400,
-  "error": {
-    "type": "validation_error",
-    "code": "invalid_input",
-    "dev": 40001,
-    "message": "Some information is invalid."
+  "data": {
+    "user_id": "049cae5c-e6ef-48ae-b8d8-69d9b44923e3",
+    "credits": 42,
+    "expires_at": "2026-01-31T00:00:00+00:00"
   }
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `type` | Category of error (see Errors page) |
-| `code` | Machine-readable error code |
-| `dev` | 5-digit internal developer code |
-| `message` | Human-readable description |
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `integer` | HTTP status code (`200`, `201`, `202`) |
+| `data` | `object` | The response payload. Shape varies per endpoint. |
+
+### Error
+
+```json
+{
+  "status": 422,
+  "error": {
+    "type": "validation_error",
+    "code": "invalid_image_url",
+    "dev": 40034,
+    "message": "The image URL is not reachable or valid."
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `integer` | HTTP status code |
+| `error.type` | `string` | Broad error category (see table below) |
+| `error.code` | `string` | Machine-readable error identifier |
+| `error.dev` | `integer` | 5-digit internal developer code |
+| `error.message` | `string` | Human-readable description |
 
 ## Error types
 
-| Type | Meaning |
-|------|---------|
-| `authentication_error` | Bad or missing token |
-| `permission_error` | Token valid but not allowed |
-| `validation_error` | Bad request input |
-| `billing_error` | Credit or payment issue |
-| `rate_limit_error` | Too many requests |
-| `not_found_error` | Resource does not exist |
-| `provider_error` | AI provider issue |
-| `system_error` | Server-side error |
+| `error.type` | HTTP range | When it occurs |
+|-------------|-----------|----------------|
+| `authentication_error` | 401, 410 | Token missing, invalid, or expired |
+| `permission_error` | 403, 451 | Token valid but caller type not allowed |
+| `validation_error` | 400, 405, 413, 415, 422 | Bad input — wrong field values, missing fields, invalid file |
+| `billing_error` | 400, 402 | Insufficient credits, bad product ID, payment failed |
+| `rate_limit_error` | 429 | Too many requests in the sliding window |
+| `not_found_error` | 404 | Resource does not exist or was deleted |
+| `provider_error` | 400, 422, 502, 503, 504 | AI provider rejected, filtered, or timed out the request |
+| `storage_error` | 500, 503 | File upload or CDN storage failure |
+| `system_error` | 500, 501, 502, 503 | Unexpected server-side error |
+
+## Developer codes
+
+The `dev` field is a 5-digit internal code that gives you a precise signal beyond the HTTP status. The first three digits mirror the HTTP status; the last two differentiate within that status.
+
+For example:
+- `40100` → `unauthorized` (HTTP 401)
+- `40200` → `insufficient_credits` (HTTP 402)
+- `40034` → `invalid_image_url` (HTTP 400)
+- `50000` → `internal_error` (HTTP 500)
+
+See the full [Error Code Reference](/docs/errors) for every code.
+
+## Paginated responses
+
+List endpoints wrap their payload in an additional `data` + `pagination` layer:
+
+```json
+{
+  "status": 200,
+  "data": {
+    "data": [
+      { "id": 1, "status": "completed", "..." : "..." },
+      { "id": 2, "status": "completed", "..." : "..." }
+    ],
+    "pagination": {
+      "next_cursor": "eyJpZCI6Mn0=",
+      "has_more": true
+    }
+  }
+}
+```
+
+See [Pagination](/docs/pagination) for details on cursor-based traversal.

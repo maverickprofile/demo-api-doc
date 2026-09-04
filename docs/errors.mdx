@@ -1,34 +1,92 @@
-﻿---
-title: "Errors"
-description: "Complete error code reference."
+---
+title: Error Codes
+description: Complete reference for every error code the GoStudio API can return, organized by HTTP status.
 ---
 
-## Common error codes
+Every error response uses this shape. Match on the code field in your error-handling logic.
 
-| Code | HTTP | Type | Message |
-|------|------|------|---------|
-| `unauthorized` | 401 | authentication_error | Missing or invalid Authorization Bearer token. |
-| `forbidden` | 403 | permission_error | You do not have permission for this action. |
-| `user_not_found` | 404 | not_found_error | User not found. |
-| `job_not_found` | 404 | not_found_error | Job not found. |
-| `insufficient_credits` | 402 | billing_error | You do not have enough credits. |
-| `rate_limited` | 429 | rate_limit_error | You are doing that too often. Please wait. |
-| `invalid_input` | 400 | validation_error | Some information is invalid. |
-| `missing_required_field` | 400 | validation_error | Required information is missing. |
-| `invalid_image_url` | 400 | validation_error | The image URL is not reachable or valid. |
-| `invalid_model_key` | 400 | validation_error | The model key is not valid for this tool. |
-| `content_filtered` | 422 | provider_error | Could not generate this image. |
-| `generation_timeout` | 504 | provider_error | The request took too long. Please try again. |
-| `internal_error` | 500 | system_error | Something went wrong on our end. |
+## HTTP 400 - Bad Request
 
-## Dev codes
+| Code | Dev | Message |
+|------|-----|---------|
+| missing_required_field | 40000 | Required information is missing. |
+| invalid_input | 40001 | Some information is invalid. |
+| invalid_url | 40006 | The URL provided is not valid. |
+| host_not_allowed | 40007 | This image host is not allowed. |
+| invalid_request_body | 40008 | The request format is invalid. |
+| invalid_model_key | 40035 | The model key is not valid for this tool. |
+| invalid_webhook_url | 40036 | The webhook URL is not a valid HTTPS URL. |
+| invalid_image_url | 40034 | The image URL is not reachable or valid. |
+| no_file_provided | 40029 | No file was provided. |
 
-Every error also includes a `dev` field — a 5-digit code that maps exactly to
-the HTTP status category:
+## HTTP 401 - Unauthorized
 
-- `401xx` → HTTP 401
-- `402xx` → HTTP 402
-- `403xx` → HTTP 403
-- `404xx` → HTTP 404
-- `429xx` → HTTP 429
-- `500xx` → HTTP 500
+| Code | Dev | Message |
+|------|-----|---------|
+| unauthorized | 40100 | Missing or invalid Authorization Bearer token. |
+| webhook_invalid_signature | 40102 | Webhook signature is invalid. |
+
+## HTTP 402 - Payment Required
+
+| Code | Dev | Message |
+|------|-----|---------|
+| insufficient_credits | 40200 | You do not have enough credits. |
+| payment_failed | 40201 | Payment could not be processed. |
+
+## HTTP 403 - Forbidden
+
+| Code | Dev | Message |
+|------|-----|---------|
+| forbidden | 40300 | You do not have permission for this action. |
+| account_restricted | 40303 | Your account is restricted. |
+
+## HTTP 404 - Not Found
+
+| Code | Dev | Message |
+|------|-----|---------|
+| user_not_found | 40400 | User not found. |
+| record_not_found | 40401 | The requested item was not found. |
+| job_not_found | 40404 | Job not found. |
+| generation_log_not_found | 40405 | Generation log not found. |
+
+## HTTP 422 - Unprocessable Content
+
+| Code | Dev | Message |
+|------|-----|---------|
+| image_too_small | 42200 | The image is too small. Please use a larger image. |
+| nsfw_content | 42204 | This content is not allowed. |
+| content_filtered | 42205 | We could not generate this image. Try a different image. |
+| output_too_large | 42208 | Output exceeds what this model can produce. |
+
+## HTTP 429 - Too Many Requests
+
+| Code | Dev | Message |
+|------|-----|---------|
+| rate_limited | 42900 | You are doing that too often. Please wait a moment. |
+| provider_rate_limited | 42901 | Too many requests. Please wait a moment. |
+
+The default rate limit is 20 requests per minute per user, sliding window. Back off and retry after 60 seconds.
+
+## HTTP 500 - Server Error
+
+| Code | Dev | Message |
+|------|-----|---------|
+| internal_error | 50000 | Something went wrong on our end. |
+| db_read_failed | 50001 | Could not load your data. Please try again. |
+| generation_failed | 50008 | We could not process your request. Please try again. |
+| generation_no_output | 50009 | We could not generate this image. Please try again. |
+| upload_failed | 50011 | Upload failed. Please try again. |
+| credit_check_failed | 50014 | Could not check your credits. Please try again. |
+
+## HTTP 502 - Bad Gateway
+
+| Code | Dev | Message |
+|------|-----|---------|
+| provider_bad_gateway | 50200 | Generation is having trouble. Please try again. |
+| provider_auth_failed | 50201 | Generation is not available right now. Please try again later. |
+
+## HTTP 504 - Gateway Timeout
+
+| Code | Dev | Message |
+|------|-----|---------|
+| generation_timeout | 50400 | The request took too long. Please try again. |
